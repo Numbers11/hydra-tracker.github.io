@@ -87,6 +87,7 @@
     transition: background 0.15s;
   }
   .date-nav button:hover { background: var(--bg-card-hover); }
+  .date-nav button:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
   .date-label {
     font-family: var(--mono);
     font-size: 0.85rem;
@@ -515,7 +516,7 @@
     <div class="date-nav">
       <button onclick="changeDate(-1)">‹</button>
       <span class="date-label" id="dateLabel"></span>
-      <button onclick="changeDate(1)">›</button>
+      <button id="nextDayBtn" onclick="changeDate(1)">›</button>
     </div>
   </div>
 
@@ -638,8 +639,9 @@
     return new Promise((resolve, reject) => {
       const tx = db.transaction('entries', 'readwrite');
       const store = tx.objectStore('entries');
-      entry.timestamp = new Date().toISOString();
-      entry.date = currentDateStr();
+      const now = new Date();
+      entry.timestamp = now.toISOString();
+      entry.date = now.toISOString().slice(0, 10); // always use actual current date
       const req = store.add(entry);
       req.onsuccess = () => resolve(req.result);
       req.onerror = e => reject(e);
@@ -682,7 +684,12 @@
   }
 
   function changeDate(delta) {
-    currentDate.setDate(currentDate.getDate() + delta);
+    const next = new Date(currentDate);
+    next.setDate(next.getDate() + delta);
+    const today = new Date();
+    today.setHours(23,59,59,999);
+    if (next > today) return; // prevent navigating to future dates
+    currentDate = next;
     updateAll();
   }
 
@@ -756,6 +763,7 @@
   async function confirmWater() {
     await addEntry({ type: 'water', volume: selectedVol, beverage: selectedBev });
     closeModals();
+    currentDate = new Date(); // switch view to today where the entry was logged
     showToast(`Logged ${selectedVol} ml ${selectedBev}`);
     updateAll();
   }
@@ -763,6 +771,7 @@
   async function confirmToilet() {
     await addEntry({ type: 'toilet', subtype: selectedToiletType });
     closeModals();
+    currentDate = new Date(); // switch view to today where the entry was logged
     showToast(`Logged bathroom visit`);
     updateAll();
   }
@@ -774,8 +783,16 @@
     setTimeout(() => t.classList.remove('show'), 2000);
   }
 
+  function isToday(d) {
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() &&
+           d.getMonth() === today.getMonth() &&
+           d.getDate() === today.getDate();
+  }
+
   async function updateAll() {
     document.getElementById('dateLabel').textContent = formatDate(currentDate);
+    document.getElementById('nextDayBtn').disabled = isToday(currentDate);
     const entries = await getEntriesByDate(currentDateStr());
 
     // Summary
