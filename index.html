@@ -490,6 +490,108 @@
   }
   .empty-state .big-icon { font-size: 2.5rem; margin-bottom: 12px; }
 
+  /* Day tags */
+  .day-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .day-tag {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: default;
+    animation: fadeIn 0.2s ease;
+  }
+  .tag-add-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 1rem;
+    transition: all 0.15s;
+  }
+  .tag-add-btn:hover {
+    border-color: var(--accent-water);
+    color: var(--accent-water);
+  }
+
+  /* Tag modal */
+  .tag-section-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    margin-top: 16px;
+  }
+  .tag-section-label:first-child { margin-top: 0; }
+  .tag-grid {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .tag-pick-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    font-size: 1.3rem;
+    transition: all 0.15s;
+  }
+  .tag-pick-btn:hover { border-color: var(--accent-water); background: var(--accent-water-dim); }
+  .tag-pick-btn.active {
+    border-color: var(--accent-water);
+    background: var(--accent-water-dim);
+    box-shadow: 0 0 0 2px var(--accent-water);
+  }
+  .tag-custom-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 16px;
+    margin-bottom: 20px;
+  }
+  .tag-custom-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 1.2rem;
+    outline: none;
+    text-align: center;
+  }
+  .tag-custom-row input:focus { border-color: var(--accent-water); }
+  .tag-custom-row button {
+    background: var(--accent-water);
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    color: var(--bg);
+    font-family: var(--font);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
   /* Toast */
   .toast {
     position: fixed;
@@ -530,6 +632,8 @@
       <div><span class="value" id="totalToilet">0</span> <span class="unit">visits</span></div>
     </div>
   </div>
+
+  <div class="day-tags" id="dayTags"></div>
 
   <div class="chart-container">
     <div class="chart-title">Hourly breakdown</div>
@@ -607,6 +711,24 @@
     <div class="modal-actions">
       <button class="modal-btn cancel" onclick="closeModals()">Cancel</button>
       <button class="modal-btn confirm toilet-confirm" onclick="confirmToilet()">Log Visit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tag Modal -->
+<div class="modal-overlay" id="tagModal">
+  <div class="modal">
+    <h2>🏷️ Day Tags</h2>
+    <div class="tag-section-label">Quick pick</div>
+    <div class="tag-grid" id="tagQuickPicks"></div>
+    <div id="tagRecentSection"></div>
+    <div class="tag-section-label">Custom emoji</div>
+    <div class="tag-custom-row">
+      <input type="text" id="tagCustomInput" placeholder="Type or pick emoji" maxlength="2">
+      <button onclick="addCustomTag()">Add</button>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeModals()" style="grid-column:1/-1">Done</button>
     </div>
   </div>
 </div>
@@ -755,7 +877,7 @@
     selectedToiletType = btn.dataset.type;
   });
 
-  // Close modals on overlay click
+  // Close modals on overlay click (also handles tagModal)
   document.querySelectorAll('.modal-overlay').forEach(m => {
     m.addEventListener('click', e => { if (e.target === m) closeModals(); });
   });
@@ -800,6 +922,9 @@
     const toiletCount = entries.filter(e => e.type === 'toilet').length;
     document.getElementById('totalIntake').textContent = totalMl;
     document.getElementById('totalToilet').textContent = toiletCount;
+
+    // Tags
+    renderDayTags();
 
     // Chart
     renderChart(entries);
@@ -916,6 +1041,106 @@
   async function exportJSON() {
     const entries = await getEntriesByDate(currentDateStr());
     downloadFile(`hydra-${currentDateStr()}.json`, JSON.stringify(entries, null, 2), 'application/json');
+  }
+
+  // --- Tags (localStorage) ---
+  const STANDARD_TAGS = ['❤️', '🏃', '🏋️', '🍺', '😊', '😢', '🍃'];
+  const TAGS_STORAGE_KEY = 'hydra-tags';
+  const RECENT_TAGS_KEY = 'hydra-recent-tags';
+
+  function getAllTags() {
+    try { return JSON.parse(localStorage.getItem(TAGS_STORAGE_KEY)) || {}; }
+    catch { return {}; }
+  }
+
+  function getTagsForDate(dateStr) {
+    return getAllTags()[dateStr] || [];
+  }
+
+  function setTagsForDate(dateStr, tags) {
+    const all = getAllTags();
+    if (tags.length === 0) delete all[dateStr];
+    else all[dateStr] = tags;
+    localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(all));
+  }
+
+  function getRecentTags() {
+    try { return JSON.parse(localStorage.getItem(RECENT_TAGS_KEY)) || []; }
+    catch { return []; }
+  }
+
+  function addRecentTag(emoji) {
+    let recent = getRecentTags().filter(t => t !== emoji);
+    recent.unshift(emoji);
+    recent = recent.slice(0, 3);
+    localStorage.setItem(RECENT_TAGS_KEY, JSON.stringify(recent));
+  }
+
+  function toggleTag(dateStr, emoji) {
+    const tags = getTagsForDate(dateStr);
+    const idx = tags.indexOf(emoji);
+    if (idx >= 0) {
+      tags.splice(idx, 1);
+    } else {
+      tags.push(emoji);
+      addRecentTag(emoji);
+    }
+    setTagsForDate(dateStr, tags);
+    renderDayTags();
+    renderTagModal();
+  }
+
+  function addCustomTag() {
+    const input = document.getElementById('tagCustomInput');
+    const val = input.value.trim();
+    if (!val) return;
+    // Extract first emoji (could be multi-codepoint)
+    const segments = [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(val)];
+    if (segments.length === 0) return;
+    const emoji = segments[0].segment;
+    // Verify it's likely an emoji (not a plain letter/number)
+    if (/^[a-zA-Z0-9\s]$/.test(emoji)) {
+      showToast('Please enter an emoji');
+      return;
+    }
+    toggleTag(currentDateStr(), emoji);
+    input.value = '';
+  }
+
+  function renderDayTags() {
+    const container = document.getElementById('dayTags');
+    const tags = getTagsForDate(currentDateStr());
+    const pills = tags.map(t => `<span class="day-tag">${t}</span>`).join('');
+    container.innerHTML = pills + `<button class="tag-add-btn" onclick="openTagModal()">+</button>`;
+  }
+
+  function openTagModal() {
+    renderTagModal();
+    document.getElementById('tagModal').classList.add('open');
+  }
+
+  function renderTagModal() {
+    const dateStr = currentDateStr();
+    const activeTags = getTagsForDate(dateStr);
+    const recent = getRecentTags().filter(t => !STANDARD_TAGS.includes(t));
+
+    // Quick picks
+    const quickContainer = document.getElementById('tagQuickPicks');
+    quickContainer.innerHTML = STANDARD_TAGS.map(e =>
+      `<button class="tag-pick-btn ${activeTags.includes(e) ? 'active' : ''}" onclick="toggleTag('${dateStr}','${e}')">${e}</button>`
+    ).join('');
+
+    // Recent section
+    const recentSection = document.getElementById('tagRecentSection');
+    if (recent.length > 0) {
+      recentSection.innerHTML = `
+        <div class="tag-section-label">Recent</div>
+        <div class="tag-grid">${recent.map(e =>
+          `<button class="tag-pick-btn ${activeTags.includes(e) ? 'active' : ''}" onclick="toggleTag('${dateStr}','${e}')">${e}</button>`
+        ).join('')}</div>`;
+    } else {
+      recentSection.innerHTML = '';
+    }
   }
 
   // --- Init ---
