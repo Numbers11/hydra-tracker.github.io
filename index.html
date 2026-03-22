@@ -1028,19 +1028,23 @@
   }
 
   function entriesToCSV(entries) {
-    const header = 'date,time,type,subtype,volume_ml,beverage\n';
+    const header = 'date,time,type,subtype,volume_ml,beverage,tags\n';
     const rows = entries.map(e => {
       const dt = new Date(e.timestamp);
       const date = dt.toISOString().slice(0, 10);
       const time = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      return `${date},${time},${e.type},${e.subtype || ''},${e.volume || ''},${e.beverage || ''}`;
+      const tags = getTagsForDate(date).join(' ');
+      return `${date},${time},${e.type},${e.subtype || ''},${e.volume || ''},${e.beverage || ''},${tags}`;
     }).join('\n');
     return header + rows;
   }
 
   async function exportJSON() {
-    const entries = await getEntriesByDate(currentDateStr());
-    downloadFile(`hydra-${currentDateStr()}.json`, JSON.stringify(entries, null, 2), 'application/json');
+    const dateStr = currentDateStr();
+    const entries = await getEntriesByDate(dateStr);
+    const tags = getTagsForDate(dateStr);
+    const data = { tags, entries };
+    downloadFile(`hydra-${dateStr}.json`, JSON.stringify(data, null, 2), 'application/json');
   }
 
   // --- Tags (localStorage) ---
